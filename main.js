@@ -26,7 +26,8 @@ class Shape {
 }
 
 class Camera {
-    position = new Point();
+    position = new Point(0, 0, -50);
+    direction = new Point(0, 0, 0);
     // fov in degrees
     fov = 120;
 
@@ -34,6 +35,23 @@ class Camera {
         if (position) {
             this.position = position;
         }
+        this.updateValues();
+    }
+
+    // recalculates angle values
+    updateValues() {
+        this.angleYZ = Math.atan((this.position.y - this.direction.y) / (Math.abs(this.direction.z - this.position.z)));
+        this.angleXZ = Math.atan((this.position.x - this.direction.x) / (Math.abs(this.direction.z - this.position.z)));
+        this.angleXY = 0;
+    }
+
+    // translates camera position
+    moveCamera(dx, dy, dz) {
+        this.position.x += dx;
+        this.position.y += dy;
+        this.position.z += dz;
+
+        this.updateValues();
     }
 }
 
@@ -73,17 +91,6 @@ class DrawingCanvas {
     }
 
     // rendering functions
-    drawPoints(points) {
-        points.forEach(point => {
-            this.ctx.fillRect(this.convertCoord(point.x, 'x') - this.pointSize / 2, this.convertCoord(point.y, 'y') - this.pointSize / 2, this.pointSize, this.pointSize);
-        });
-    }
-    drawLine(pointOne, pointTwo) {
-        this.ctx.beginPath();
-        this.ctx.moveTo(this.convertCoord(pointOne.x, 'x'), this.convertCoord(pointOne.y, 'y'));
-        this.ctx.lineTo(this.convertCoord(pointTwo.x, 'x'), this.convertCoord(pointTwo.y, 'y'));
-        this.ctx.stroke();
-    }
     renderShapes() {
         this.shapes.forEach(shape => {
             // translate 3d to 2d
@@ -97,6 +104,18 @@ class DrawingCanvas {
                 this.drawLine(images[pair[0]], images[pair[1]]);
             })
         }) 
+    }
+    // rendering helper functions
+    drawPoints(points) {
+        points.forEach(point => {
+            this.ctx.fillRect(this.convertCoord(point.x, 'x') - this.pointSize / 2, this.convertCoord(point.y, 'y') - this.pointSize / 2, this.pointSize, this.pointSize);
+        });
+    }
+    drawLine(pointOne, pointTwo) {
+        this.ctx.beginPath();
+        this.ctx.moveTo(this.convertCoord(pointOne.x, 'x'), this.convertCoord(pointOne.y, 'y'));
+        this.ctx.lineTo(this.convertCoord(pointTwo.x, 'x'), this.convertCoord(pointTwo.y, 'y'));
+        this.ctx.stroke();
     }
 
     // converts point coordinates to canvas coordinates
@@ -116,6 +135,15 @@ class DrawingCanvas {
             const screenWidth = this.canvas.width;
             const screenHeight = this.canvas.height;
 
+            // orients points relative to camera
+            point = this.rotatePoint(point, this.camera.angleYZ, this.camera.angleXZ, this.camera.angleXY);
+            
+            // TODO: use isometric frame instead of perspective (currently assuming observer is a point)
+            //      for isometric, use normal vectors instead of vectors towards camera 
+            point.z = this.magnitudePoint(this.subtractPoints(point, this.camera.position));
+            
+
+            // converts 3d to canvas
             image.x = screenWidth * point.x / (screenWidth + 2 * point.z * Math.tan(this.camera.fov * (Math.PI / 180) / 2));
             image.y = screenHeight * point.y / (screenHeight + 2 * point.z * Math.tan(this.camera.fov * (Math.PI / 180) / 2));
 
@@ -171,22 +199,93 @@ class DrawingCanvas {
         this.shapes.push(newCube);
         return newCube;
     }
+
+    // helper functions
+    // rotates a point using transformation matrices
+    rotatePoint(point, angleYZ, angleXZ,  angleXY) {
+        if (angleYZ) {
+            // rotation relative to x axis
+            let rotationX = [
+                [1, 0, 0],
+                [0, Math.cos(angleYZ), -Math.sin(angleYZ)],
+                [0, Math.sin(angleYZ), Math.cos(angleYZ)]
+            ];
+            point = multiplyMatrices(rotationX, point);
+        }
+        if (angleXZ) {
+            // rotation relative to y axis
+            let rotationY = [
+                [Math.cos(angleXZ), 0, Math.sin(angleXZ)],
+                [0, 1, 0],
+                [-Math.sin(angleXZ), 0, Math.cos(angleXZ)]
+            ];
+            point = multiplyMatrices(rotationY, point);
+        }
+        if (angleXY) {
+            // rotation relative to z axis
+        }
+
+        return point;
+
+        function multiplyMatrices(rotationMatrix, oldPoint){
+            let result = [];
+            for (let i = 0; i < 3; i++) {
+                result[i] = rotationMatrix[i][0] * oldPoint.x + rotationMatrix[i][1] * oldPoint.y + rotationMatrix[i][2] * oldPoint.z;
+            }
+            let newPoint = new Point(...result);
+            return newPoint;
+        }
+    }
+    subtractPoints(pointOne, pointTwo) {
+        let newPoint = new Point();
+        newPoint.x = pointOne.x - pointTwo.x;
+        newPoint.y = pointOne.y - pointTwo.y;
+        newPoint.z = pointOne.z - pointTwo.z;
+
+        return newPoint;
+    }
+    magnitudePoint(point) {
+        let result = Math.sqrt(point.x**2 + point.y**2 + point.z**2);
+        return result;
+    }
 }
 
 const mainCanvas = g('mainCanvas');
 
-let canv = new DrawingCanvas(mainCanvas);
-
-canv.cube(new Point(), 100, true);
-canv.cube(new Point(-150, -100), 20, true);
-canv.cube(new Point(0, 125), 50, true);
-canv.cube(new Point(150, 50), 100, true);
-canv.cube(new Point(-200), 100, true);
-canv.cube(new Point(300, -200, 500), 120, true);
-canv.cube(new Point(-200), 100, true);
-canv.cube(new Point(0, -150, -10), 50, true);
+let drawer = new DrawingCanvas(mainCanvas);
 
 
 
-canv.renderShapes();
 
+
+drawer.cube(new Point(), 100, true);
+drawer.cube(new Point(-150, -100), 20, true);
+drawer.cube(new Point(0, 125), 50, true);
+drawer.cube(new Point(150, 50), 100, true);
+drawer.cube(new Point(-200), 100, true);
+drawer.cube(new Point(300, -200, 500), 120, true);
+drawer.cube(new Point(-200), 100, true);
+drawer.cube(new Point(0, -150, -10), 50, true);
+
+drawer.renderShapes();
+
+// controller
+// TODO: program actual rotation values instead of translation
+this.document.addEventListener('keydown', event => {
+    switch (event.key) {
+        case 'a':
+            drawer.camera.moveCamera(-1, 0, 0);
+            break;
+        case 'd':
+            drawer.camera.moveCamera(1, 0, 0);
+            break;
+        case 'w':
+            drawer.camera.moveCamera(0, -1, 0);
+            break;
+        case 's':
+            drawer.camera.moveCamera(0, 1, 0);
+            break;
+    }
+    drawer.clearCanvas();
+    drawer.renderShapes();
+})
